@@ -1,4 +1,10 @@
 streamlit
 pandas
 scikit-learn
-matplotlib  
+matplotlib
+transformers
+torch
+numpy
+python-dotenv
+langchain
+openai  

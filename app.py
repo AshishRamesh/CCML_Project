@@ -1,6 +1,10 @@
 import streamlit as st
 from datetime import datetime
 import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder
+import matplotlib.pyplot as plt
 
 st.markdown("""
 <style>
@@ -34,6 +38,57 @@ button[title] {
 </style>
 """, unsafe_allow_html=True)
 
+def analyze_productivity(tasks):
+    """Analyze productivity using ML-based predictions"""
+    if not tasks:
+        return None, None
+    
+    try:
+        df = pd.DataFrame(tasks)
+        df['created_at'] = pd.to_datetime(df['created_at'])
+        df['due_date'] = pd.to_datetime(df['due_date'])
+        
+        # Calculate time-based features
+        df['days_to_due'] = (df['due_date'] - df['created_at']).dt.days
+        df['is_completed'] = df['completed'].astype(int)
+        
+        # Encode priority
+        le = LabelEncoder()
+        df['priority_encoded'] = le.fit_transform(df['priority'])
+        
+        # Prepare features for ML
+        features = ['days_to_due', 'priority_encoded']
+        X = df[features]
+        y = df['is_completed']
+        
+        # Train a simple ML model
+        model = RandomForestClassifier(n_estimators=100, random_state=42)
+        model.fit(X, y)
+        
+        # Calculate completion probability for each task
+        df['completion_probability'] = model.predict_proba(X)[:, 1]
+        
+        # Create visualization
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+        
+        # Priority completion rate
+        priority_stats = df.groupby('priority')['is_completed'].mean()
+        priority_stats.plot(kind='bar', ax=ax1, color=['#ff4b4b', '#ffa500', '#4CAF50'])
+        ax1.set_title('Completion Rate by Priority')
+        ax1.set_ylabel('Completion Rate')
+        
+        # Days to due vs completion probability
+        df.plot(kind='scatter', x='days_to_due', y='completion_probability', ax=ax2)
+        ax2.set_title('Completion Probability vs Days to Due')
+        ax2.set_xlabel('Days to Due Date')
+        ax2.set_ylabel('Completion Probability')
+        
+        plt.tight_layout()
+        
+        return df, fig
+    except Exception as e:
+        st.error(f"Error in productivity analysis: {str(e)}")
+        return None, None
 
 def main():
     st.title("📝 To-Do List App")
@@ -64,81 +119,153 @@ def main():
             else:
                 st.warning("Please enter a task description")
     
-    st.header("Your Tasks")
+    # Create tabs for tasks and analysis
+    tab1, tab2 = st.tabs(["📋 Tasks", "📊 Productivity Analysis"])
     
-    if not st.session_state.tasks:
-        st.info("No tasks yet. Add some using the sidebar!")
-    else:
-        col1, col2 = st.columns(2)
-        with col1:
-            show_completed = st.checkbox("Show completed tasks")
-        with col2:
-            sort_option = st.selectbox("Sort by", ["Creation Date", "Due Date", "Priority"])
+    with tab1:
+        st.header("Your Tasks")
         
-        filtered_tasks = [task for task in st.session_state.tasks if show_completed or not task["completed"]]
-        
-        if sort_option == "Due Date":
-            filtered_tasks.sort(key=lambda x: x["due_date"])
-        elif sort_option == "Priority":
-            order = {"High": 1, "Medium": 2, "Low": 3}
-            filtered_tasks.sort(key=lambda x: order[x["priority"]])
+        if not st.session_state.tasks:
+            st.info("No tasks yet. Add some using the sidebar!")
         else:
-            filtered_tasks.sort(key=lambda x: x["created_at"], reverse=True)
+            col1, col2 = st.columns(2)
+            with col1:
+                show_completed = st.checkbox("Show completed tasks")
+            with col2:
+                sort_option = st.selectbox("Sort by", ["Creation Date", "Due Date", "Priority"])
+            
+            filtered_tasks = [task for task in st.session_state.tasks if show_completed or not task["completed"]]
+            
+            if sort_option == "Due Date":
+                filtered_tasks.sort(key=lambda x: x["due_date"])
+            elif sort_option == "Priority":
+                order = {"High": 1, "Medium": 2, "Low": 3}
+                filtered_tasks.sort(key=lambda x: order[x["priority"]])
+            else:
+                filtered_tasks.sort(key=lambda x: x["created_at"], reverse=True)
 
-        for task in filtered_tasks:
-            border_color = {
-                "High": "#ff4b4b",
-                "Medium": "#ffa500",
-                "Low": "#4CAF50"
-            }.get(task["priority"], "#4CAF50")
+            for task in filtered_tasks:
+                border_color = {
+                    "High": "#ff4b4b",
+                    "Medium": "#ffa500",
+                    "Low": "#4CAF50"
+                }.get(task["priority"], "#4CAF50")
 
-            with st.form(key=f"form_{task['id']}"):
-                st.markdown(
-                    f"""
-                    <div class="task-card" style="border-left-color: {border_color}; {'opacity: 0.6;' if task['completed'] else ''}">
-                        <h3>{task['description']}</h3>
-                        <p>📅 Due: {task['due_date'].strftime('%b %d, %Y')}</p>
-                        <p>🔖 Priority: {task['priority']}</p>
-                        <p>⏱ Created: {task['created_at'].strftime('%b %d, %Y %H:%M')}</p>
-                        <div style="margin-top: 10px;">
-                    """, unsafe_allow_html=True
+                with st.form(key=f"form_{task['id']}"):
+                    st.markdown(
+                        f"""
+                        <div class="task-card" style="border-left-color: {border_color}; {'opacity: 0.6;' if task['completed'] else ''}">
+                            <h3>{task['description']}</h3>
+                            <p>📅 Due: {task['due_date'].strftime('%b %d, %Y')}</p>
+                            <p>🔖 Priority: {task['priority']}</p>
+                            <p>⏱ Created: {task['created_at'].strftime('%b %d, %Y %H:%M')}</p>
+                            <div style="margin-top: 10px;">
+                        """, unsafe_allow_html=True
+                    )
+
+                    colA, colB = st.columns([1, 1])
+                    with colA:
+                        complete = st.form_submit_button("✅", help="Mark Complete")
+                    with colB:
+                        delete = st.form_submit_button("🗑️", help="Delete Task")
+
+                    if complete:
+                        task["completed"] = not task["completed"]
+                        st.rerun()
+                    if delete:
+                        st.session_state.tasks = [t for t in st.session_state.tasks if t["id"] != task["id"]]
+                        st.rerun()
+
+                    st.markdown("</div></div>", unsafe_allow_html=True)
+            
+            # Exportable dataset section
+            task_df = pd.DataFrame(st.session_state.tasks)
+
+            if not task_df.empty:
+                task_df["created_at"] = task_df["created_at"].astype(str)
+                task_df["due_date"] = task_df["due_date"].astype(str)
+                
+                st.subheader("📊 Export Task Data")
+                st.write("Use this for productivity prediction or analysis.")
+
+                csv = task_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="📥 Download Task Dataset as CSV",
+                    data=csv,
+                    file_name="tasks_dataset.csv",
+                    mime="text/csv"
                 )
-
-                colA, colB = st.columns([1, 1])
-                with colA:
-                    complete = st.form_submit_button("✅", help="Mark Complete")
-                with colB:
-                    delete = st.form_submit_button("🗑️", help="Delete Task")
-
-                if complete:
-                    task["completed"] = not task["completed"]
-                    st.rerun()
-                if delete:
-                    st.session_state.tasks = [t for t in st.session_state.tasks if t["id"] != task["id"]]
-                    st.rerun()
-
-                st.markdown("</div></div>", unsafe_allow_html=True)
     
-        # Exportable dataset section
-    task_df = pd.DataFrame(st.session_state.tasks)
-
-    if not task_df.empty:
-        # Convert datetime objects to strings for CSV export
-        task_df["created_at"] = task_df["created_at"].astype(str)
-        task_df["due_date"] = task_df["due_date"].astype(str)
-        
-        st.subheader("📊 Export Task Data")
-        st.write("Use this for productivity prediction or analysis.")
-
-        # Download button
-        csv = task_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="📥 Download Task Dataset as CSV",
-            data=csv,
-            file_name="tasks_dataset.csv",
-            mime="text/csv"
-        )
-
+    with tab2:
+        st.header("Productivity Analysis")
+        if len(st.session_state.tasks) > 0:
+            df, fig = analyze_productivity(st.session_state.tasks)
+            if df is not None:
+                # Display ML insights
+                st.subheader("ML-Powered Insights")
+                
+                # Calculate key metrics
+                total_tasks = len(df)
+                completed_tasks = df['is_completed'].sum()
+                completion_rate = (completed_tasks / total_tasks) * 100
+                high_risk_tasks = df[df['completion_probability'] < 0.3]
+                
+                # Display metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Tasks", total_tasks)
+                with col2:
+                    st.metric("Completion Rate", f"{completion_rate:.1f}%")
+                with col3:
+                    st.metric("High Risk Tasks", len(high_risk_tasks))
+                
+                # Display visualizations
+                st.pyplot(fig)
+                
+                # Display recommendations
+                st.subheader("Recommendations")
+                if len(high_risk_tasks) > 0:
+                    st.warning(f"⚠️ You have {len(high_risk_tasks)} high-risk tasks that need attention!")
+                    for _, task in high_risk_tasks.iterrows():
+                        st.write(f"- {task['description']} (Priority: {task['priority']})")
+                
+                # Priority-based insights with improved styling
+                st.subheader("Priority Analysis")
+                priority_stats = df.groupby('priority').agg({
+                    'is_completed': ['count', 'mean'],
+                    'completion_probability': 'mean'
+                }).round(2)
+                
+                # Rename columns for better readability
+                priority_stats.columns = ['Task Count', 'Completion Rate', 'Predicted Success Rate']
+                
+                # Style the dataframe
+                styled_stats = priority_stats.style.format({
+                    'Completion Rate': '{:.1%}',
+                    'Predicted Success Rate': '{:.1%}'
+                }).background_gradient(
+                    subset=['Completion Rate', 'Predicted Success Rate'],
+                    cmap='RdYlGn'
+                ).set_properties(**{
+                    'background-color': 'white',
+                    'color': 'black',
+                    'border-color': 'lightgrey',
+                    'border-style': 'solid',
+                    'border-width': '1px',
+                    'padding': '5px'
+                })
+                
+                st.dataframe(styled_stats, use_container_width=True)
+                
+                # Add explanation
+                st.info("""
+                📊 **Understanding the Analysis:**
+                - **Task Count**: Number of tasks in each priority level
+                - **Completion Rate**: Historical completion rate for each priority
+                - **Predicted Success Rate**: ML-predicted probability of completion
+                """)
+        else:
+            st.info("Add some tasks to see productivity analysis!")
 
 if __name__ == "__main__":
     main()
