@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
@@ -89,6 +89,73 @@ def analyze_productivity(tasks):
     except Exception as e:
         st.error(f"Error in productivity analysis: {str(e)}")
         return None, None
+
+def analyze_daily_productivity(tasks):
+    """Analyze productivity for the current day and predict completion"""
+    today = datetime.now().date()
+    today_tasks = [task for task in tasks if task['due_date'] == today]
+    
+    if not today_tasks:
+        return None, None, None
+    
+    # Calculate completion rate for today
+    completed_today = sum(1 for task in today_tasks if task['completed'])
+    total_today = len(today_tasks)
+    completion_rate = (completed_today / total_today) * 100 if total_today > 0 else 0
+    
+    # Estimate time needed for remaining tasks
+    avg_task_time = 30  # Assuming average task takes 30 minutes
+    remaining_tasks = total_today - completed_today
+    estimated_time_needed = remaining_tasks * avg_task_time
+    
+    # Calculate remaining hours in the day
+    current_hour = datetime.now().hour
+    remaining_hours = 24 - current_hour
+    
+    # Predict if tasks can be completed today
+    can_complete = estimated_time_needed <= (remaining_hours * 60)
+    
+    return today_tasks, completion_rate, can_complete
+
+def generate_timetable(tasks):
+    """Generate a timetable for the day"""
+    today = datetime.now().date()
+    today_tasks = [task for task in tasks if task['due_date'] == today and not task['completed']]
+    
+    if not today_tasks:
+        return None
+    
+    # Sort tasks by priority
+    priority_order = {"High": 1, "Medium": 2, "Low": 3}
+    today_tasks.sort(key=lambda x: priority_order[x["priority"]])
+    
+    # Generate timetable
+    current_time = datetime.now()
+    timetable = []
+    
+    for task in today_tasks:
+        # Allocate time based on priority
+        time_allocation = {
+            "High": 60,  # 1 hour
+            "Medium": 45,  # 45 minutes
+            "Low": 30  # 30 minutes
+        }
+        
+        task_time = time_allocation[task["priority"]]
+        start_time = current_time
+        end_time = start_time + timedelta(minutes=task_time)
+        
+        timetable.append({
+            "task": task["description"],
+            "priority": task["priority"],
+            "start_time": start_time,
+            "end_time": end_time,
+            "duration": task_time
+        })
+        
+        current_time = end_time
+    
+    return timetable
 
 def main():
     st.title("📝 To-Do List App")
@@ -199,9 +266,36 @@ def main():
     with tab2:
         st.header("Productivity Analysis")
         if len(st.session_state.tasks) > 0:
+            # Daily Productivity Analysis
+            st.subheader("📅 Today's Productivity")
+            today_tasks, completion_rate, can_complete = analyze_daily_productivity(st.session_state.tasks)
+            
+            if today_tasks:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Today's Tasks", len(today_tasks))
+                with col2:
+                    st.metric("Completion Rate", f"{completion_rate:.1f}%")
+                with col3:
+                    status = "✅ Can Complete" if can_complete else "⚠️ May Need More Time"
+                    st.metric("Today's Status", status)
+                
+                # Generate and display timetable
+                st.subheader("📋 Today's Timetable")
+                timetable = generate_timetable(st.session_state.tasks)
+                
+                if timetable:
+                    for slot in timetable:
+                        with st.expander(f"{slot['start_time'].strftime('%I:%M %p')} - {slot['end_time'].strftime('%I:%M %p')} | {slot['task']}"):
+                            st.write(f"**Priority:** {slot['priority']}")
+                            st.write(f"**Duration:** {slot['duration']} minutes")
+                            st.write(f"**Task:** {slot['task']}")
+                else:
+                    st.info("No remaining tasks for today!")
+            
+            # Original ML Analysis
             df, fig = analyze_productivity(st.session_state.tasks)
             if df is not None:
-                # Display ML insights
                 st.subheader("ML-Powered Insights")
                 
                 # Calculate key metrics
