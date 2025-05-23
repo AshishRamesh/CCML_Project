@@ -3,8 +3,6 @@ pandas
 scikit-learn
 matplotlib
 transformers
-torch
 numpy
 python-dotenv
-langchain
-openai  
+
